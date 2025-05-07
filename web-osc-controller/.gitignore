@@ -22,7 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-.cursor/rules
+../.cursor/rules
 
 # license key
 .pem
