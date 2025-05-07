@@ -4,9 +4,17 @@ const WebSocket = require('ws'); // Re-add ws library
 const OSC = require('osc-js');
 
 // --- Configuration ---
-const BRIDGE_SERVER_PORT = 8081;
-const TARGET_OSC_HOST = 'localhost';
-const TARGET_OSC_PORT = 9000;
+const BRIDGE_SERVER_PORT_DEFAULT = 8081;
+const TARGET_OSC_HOST_DEFAULT = 'localhost'; // Keep default for host as it's not requested
+const TARGET_OSC_PORT_DEFAULT = 9000;
+
+// Get ports from command line arguments if provided, otherwise use defaults
+const argBridgePort = process.argv[2] ? parseInt(process.argv[2], 10) : BRIDGE_SERVER_PORT_DEFAULT;
+const argTargetOscPort = process.argv[3] ? parseInt(process.argv[3], 10) : TARGET_OSC_PORT_DEFAULT;
+
+const BRIDGE_SERVER_PORT = Number.isInteger(argBridgePort) && argBridgePort > 0 && argBridgePort < 65536 ? argBridgePort : BRIDGE_SERVER_PORT_DEFAULT;
+const TARGET_OSC_HOST = TARGET_OSC_HOST_DEFAULT; // Host remains configurable here if needed in future
+const TARGET_OSC_PORT = Number.isInteger(argTargetOscPort) && argTargetOscPort > 0 && argTargetOscPort < 65536 ? argTargetOscPort : TARGET_OSC_PORT_DEFAULT;
 
 // --- HTTPS Certificate Paths ---
 const HTTPS_OPTIONS = {
@@ -16,6 +24,9 @@ const HTTPS_OPTIONS = {
 // --- End Configuration ---
 
 console.log("Starting OSC Bridge Server (Manual WS + UDP Forwarding)...");
+console.log(`Attempting to use Bridge Server Port: ${BRIDGE_SERVER_PORT}`);
+console.log(`Attempting to use Target OSC Host: ${TARGET_OSC_HOST}`);
+console.log(`Attempting to use Target OSC Port: ${TARGET_OSC_PORT}`);
 
 // Create HTTPS server
 const server = https.createServer(HTTPS_OPTIONS, (req, res) => {
@@ -33,6 +44,8 @@ server.on('upgrade', (request, socket, head) => {
 // Configure OSC for UDP Sending ONLY (we handle unpack manually)
 const oscUdpSender = new OSC({
     plugin: new OSC.DatagramPlugin({
+        localAddress: '127.0.0.1', // Bind to localhost for the local side of the sender
+        localPort: 0,             // Use an ephemeral (any available) local port
         send: {
             host: TARGET_OSC_HOST,
             port: TARGET_OSC_PORT

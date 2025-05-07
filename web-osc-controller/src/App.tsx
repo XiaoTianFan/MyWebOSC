@@ -11,6 +11,7 @@ import { ButtonControl } from './components/ButtonControl'; // Import Button
 import { ToggleControl } from './components/ToggleControl'; // Import Toggle
 import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd'; // Import dnd components
 import { throttle } from './utils/throttle'; // Import throttle utility
+import HandTrackingController, { HandTrackingOscAddresses } from './components/HandTrackingController'; // Added Hand Tracking
 
 // Define types for better type safety (optional but recommended with TypeScript)
 interface ControlConfig {
@@ -43,7 +44,7 @@ interface AccelerationData {
 // type WebSocketStatus = 'disconnected' | 'connecting' | 'connected' | 'error'; // Moved to hook
 
 // Constants
-const SENSOR_THROTTLE_INTERVAL = 100; // ms (e.g., 10 updates per second)
+const SENSOR_THROTTLE_INTERVAL = 50; // ms (e.g., 10 updates per second)
 
 function App() {
   // Core state variables
@@ -54,7 +55,7 @@ function App() {
   });
   const [isSendingSensors, setIsSendingSensors] = useState<boolean>(false);
   const [webSocketStatus, setWebSocketStatus] = useState<WebSocketStatus>('disconnected'); // Local state reflects hook status
-  const [serverUrl, setServerUrl] = useState<string>('wss://10.228.226.218:8081'); // Default WebSocket bridge URL
+  const [serverUrl, setServerUrl] = useState<string>('wss://10.228.253.140:8081'); // Default WebSocket bridge URL
   const [sensorPermissionStatus, setSensorPermissionStatus] = useState<'unknown' | 'prompt' | 'granted' | 'denied'>('unknown');
 
   // State for displaying sensor data
@@ -64,6 +65,22 @@ function App() {
   // State for control settings dialog
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [controlBeingEdited, setControlBeingEdited] = useState<ControlConfig | null>(null);
+
+  // --- Hand Tracking State ---
+  const [isHandTrackingActive, setIsHandTrackingActive] = useState<boolean>(false);
+  const [handTrackingStatus, setHandTrackingStatus] = useState<string>("Idle");
+  const [handTrackingOscConfig, setHandTrackingOscConfig] = useState<HandTrackingOscAddresses>({
+    position: '/hand/position',
+    velocity: '/hand/velocity',
+    acceleration: '/hand/acceleration',
+    gesture: '/hand/gesture',
+    landmarks: '/hand/landmarks' // Optional: to send all landmarks
+  });
+  const [sendRawLandmarks, setSendRawLandmarks] = useState<boolean>(false);
+  const [handThrottleInterval, setHandThrottleInterval] = useState<number>(100);
+
+  // --- P5.js Sketch Config State (removed) ---
+  // const [showP5Video, setShowP5Video] = useState<boolean>(false); 
 
   // Ref for the hidden file input
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -101,6 +118,15 @@ function App() {
           console.error("Failed to create or pack OSC message:", error);
       }
   }, [webSocketStatus, wsSendMessage]);
+
+  // --- Memoize Config for HandTrackingController ---
+  const handTrackingConfig = useMemo(() => ({
+    throttleInterval: handThrottleInterval,
+    sendRawLandmarks: sendRawLandmarks,
+    // showP5Video: showP5Video, // Removed
+    // p5CanvasWidth: p5CanvasWidth, 
+    // p5CanvasHeight: p5CanvasHeight
+  }), [handThrottleInterval, sendRawLandmarks]); // Removed showP5Video dependency
 
   // --- Sensor Logic --- 
 
@@ -330,91 +356,80 @@ function App() {
   // --- Import/Export Logic ---
 
   const handleExportLayout = () => {
-    if (controls.length === 0) {
-        alert("No controls to export.");
-        return;
-    }
-    try {
-        // Only export essential data, maybe exclude runtime state if any
-        const dataToExport = JSON.stringify(controls, null, 2); // Pretty print JSON
-        const blob = new Blob([dataToExport], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = 'web-osc-layout.json';
-        document.body.appendChild(link); // Required for Firefox
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url); // Clean up
-    } catch (error) {
-        console.error("Error exporting layout:", error);
-        alert("An error occurred while exporting the layout.");
-    }
+    const layoutToExport = {
+      controls,
+      sensorConfig,
+      handTrackingOscConfig,
+      sendRawLandmarks,
+      handThrottleInterval,
+      // showP5Video // Removed from export
+    };
+    const jsonString = JSON.stringify(layoutToExport, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = href;
+    link.download = 'osc-controller-layout.json';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(href);
   };
 
-  const handleImportClick = () => {
-      // Trigger the hidden file input
-      fileInputRef.current?.click();
+  const handleImportButtonClick = () => {
+    // Trigger the hidden file input
+    fileInputRef.current?.click();
   };
 
-  const handleFileSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      if (!file) {
-          return;
-      }
-
-      if (file.type !== 'application/json') {
-          alert("Please select a valid JSON file (.json).");
-          // Reset file input value to allow selecting the same file again if needed
-          if(event.target) event.target.value = "";
-          return;
-      }
-
+  const handleImportLayout = (event: React.ChangeEvent<HTMLInputElement>) => { // Renamed for clarity
+    const file = event.target.files?.[0];
+    if (file) {
       const reader = new FileReader();
       reader.onload = (e) => {
+        try {
           const text = e.target?.result;
           if (typeof text === 'string') {
-              try {
-                  const importedData = JSON.parse(text);
-                  
-                  // --- Basic Validation --- 
-                  if (!Array.isArray(importedData)) {
-                      throw new Error("Imported data is not an array.");
-                  }
-                  // Optional: More detailed validation of array items
-                  const isValid = importedData.every(item => 
-                       typeof item === 'object' && 
-                       item !== null &&
-                       typeof item.id === 'string' &&
-                       typeof item.type === 'string' && // Add more checks as needed
-                       typeof item.label === 'string' &&
-                       typeof item.address === 'string'
-                   );
+            const importedLayout = JSON.parse(text);
+            if (importedLayout.controls) { // Add more validation as needed
+              setControls(importedLayout.controls);
+            }
+            if (importedLayout.sensorConfig) {
+              setSensorConfig(importedLayout.sensorConfig);
+            }
+            // Import hand tracking config if present
+            if (importedLayout.handTrackingOscConfig) {
+              setHandTrackingOscConfig(importedLayout.handTrackingOscConfig);
+            }
+            if (typeof importedLayout.sendRawLandmarks === 'boolean') {
+              setSendRawLandmarks(importedLayout.sendRawLandmarks);
+            }
+            if (typeof importedLayout.handThrottleInterval === 'number') {
+              setHandThrottleInterval(importedLayout.handThrottleInterval);
+            }
+            // Removed import of showP5Video
+            // if (typeof importedLayout.showP5Video === 'boolean') {
+            //   setShowP5Video(importedLayout.showP5Video);
+            // }
 
-                  if (!isValid) {
-                      throw new Error("Imported data structure is invalid. Ensure items have id, type, label, address.");
-                  }
-                  // --- End Validation --- 
-
-                  setControls(importedData as ControlConfig[]); // Cast after validation
-                  alert("Layout imported successfully!");
-
-              } catch (error: any) {
-                  console.error("Error importing layout:", error);
-                  alert(`Failed to import layout: ${error.message || 'Invalid JSON format'}`);
-              }
-          } else {
-               alert("Failed to read file content.");
+            alert('Layout imported successfully!');
           }
-          // Reset file input value after processing
-          if(event.target) event.target.value = "";
-      };
-      reader.onerror = () => {
-          console.error("Error reading file:", reader.error);
-          alert("An error occurred while reading the file.");
-          if(event.target) event.target.value = "";
+        } catch (error) {
+          console.error('Failed to import layout:', error);
+          alert('Failed to import layout. Make sure it is a valid JSON file.');
+        }
       };
       reader.readAsText(file);
+    }
+    // Reset file input to allow importing the same file again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  // Helper to update hand tracking OSC addresses
+  const handleHandOscConfigChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = event.target;
+    setHandTrackingOscConfig(prev => ({ ...prev, [name]: value }));
   };
 
   // --- End Import/Export Logic ---
@@ -573,7 +588,7 @@ function App() {
            </div>
            {/* Import/Export Buttons */}
            <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
-               <button onClick={handleImportClick}>Import Layout (JSON)</button>
+               <button onClick={handleImportButtonClick}>Import Layout (JSON)</button>
                <button onClick={handleExportLayout}>Export Layout (JSON)</button>
       </div>
             {/* Hidden file input for import */}
@@ -582,10 +597,82 @@ function App() {
                 ref={fileInputRef}
                 style={{ display: 'none' }} 
                 accept=".json,application/json" // Accept only JSON files
-                onChange={handleFileSelected}
+                onChange={handleImportLayout}
             />
         </section>
+
+        {/* -- Hand Tracking Section -- */}
+        <div className="config-section">
+          <h3>Hand Tracking (Webcam)</h3>
+          <button onClick={() => setIsHandTrackingActive(!isHandTrackingActive)}
+                  className={isHandTrackingActive ? 'active' : ''}>
+            {isHandTrackingActive ? 'Stop Hand Tracking' : 'Start Hand Tracking'}
+          </button>
+          <p>Status: {handTrackingStatus}</p>
+          <div>
+            <label>
+              Position OSC Address:
+              <input type="text" name="position" value={handTrackingOscConfig.position} onChange={handleHandOscConfigChange} />
+            </label>
+          </div>
+          <div>
+            <label>
+              Velocity OSC Address:
+              <input type="text" name="velocity" value={handTrackingOscConfig.velocity} onChange={handleHandOscConfigChange} />
+            </label>
+          </div>
+          <div>
+            <label>
+              Gesture OSC Address:
+              <input type="text" name="gesture" value={handTrackingOscConfig.gesture} onChange={handleHandOscConfigChange} />
+            </label>
+          </div>
+           <div>
+            <label>
+              All Landmarks OSC Address (Optional):
+              <input type="text" name="landmarks" value={handTrackingOscConfig.landmarks || ''} onChange={handleHandOscConfigChange} />
+            </label>
+          </div>
+          <div>
+            <label>
+                <input
+                    type="checkbox"
+                    checked={sendRawLandmarks}
+                    onChange={(e) => setSendRawLandmarks(e.target.checked)}
+                />
+                Send All Raw Landmarks (if address specified)
+            </label>
+          </div>
+           <div>
+            <label>
+              Throttle Interval (ms):
+              <input
+                type="number"
+                value={handThrottleInterval}
+                onChange={(e) => setHandThrottleInterval(Math.max(20, parseInt(e.target.value, 10) || 50))}
+                step="10"
+                min="20"
+              />
+            </label>
+          </div>
+        </div>
+
+        {/* -- Spacer --*/}
+        <div style={{height: "20px"}}></div>
+
+        <button onClick={openAddDialog} className="add-control-btn">Add Control</button>
       </main>
+
+      {/* Hand Tracking Controller (Rendered conditionally but always part of React tree for hook) */}
+      {isHandTrackingActive && ( // Only mount and run when active
+        <HandTrackingController
+            isActive={isHandTrackingActive}
+            sendOsc={sendOsc}
+            oscAddresses={handTrackingOscConfig}
+            onStatusUpdate={setHandTrackingStatus}
+            config={handTrackingConfig} // Config no longer contains showP5Video
+        />
+      )}
 
       {/* Render the Dialog */} 
       <ControlSettingsDialog 
