@@ -485,182 +485,157 @@ function App() {
       <header className="app-header">
         <h1>Web OSC Controller</h1>
         <div className="status-section">
-          <span>WebSocket: {webSocketStatus}</span>
-          {webSocketStatus !== 'connected' && <button onClick={connectWebSocket} disabled={webSocketStatus === 'connecting'}>Connect</button>}
-          {webSocketStatus === 'connected' && <button onClick={disconnectWebSocket}>Disconnect</button>}
-          {/* Add Server URL input later */}
+          <span className={`status-dot ${webSocketStatus}`}></span>
+          <span className="muted">WebSocket:</span>
+          <span>{webSocketStatus}</span>
+          {webSocketStatus !== 'connected' && (
+            <button className="btn btn-primary" onClick={connectWebSocket} disabled={webSocketStatus === 'connecting'}>
+              Connect
+            </button>
+          )}
+          {webSocketStatus === 'connected' && (
+            <button className="btn" onClick={disconnectWebSocket}>Disconnect</button>
+          )}
         </div>
       </header>
 
       {/* Main Content Area */}
-      <main className="main-content">
-        {/* Sensor Panel - Updated */} 
-        <section className="panel sensor-panel">
-          <h2>Sensors</h2>
-          {sensorPermissionStatus === 'denied' && (
-              <p style={{color: 'red'}}>Sensor permissions denied. Please check browser settings.</p>
-          )}
-          {/* Show toggle button only if permissions are granted or needed */} 
-          {(sensorPermissionStatus === 'granted' || sensorPermissionStatus === 'prompt') && (
-              <button 
-                  onClick={handleToggleSensorSending} 
-                   // Simplified disabled condition: only disable if sending AND websocket isn't connected.
-                   // Permission state is handled by the conditional rendering above.
-                  disabled={isSendingSensors && webSocketStatus !== 'connected'} 
-              >
-                  {isSendingSensors ? 'Stop Sending Sensors' : 
-                   (sensorPermissionStatus === 'prompt' ? 'Enable & Start Sending Sensors' : 'Start Sending Sensors')}
-              </button>
-          )}
-          {isSendingSensors && webSocketStatus !== 'connected' && (
-               <p style={{color: 'orange'}}>Warning: WebSocket not connected. Sensor data is not being sent.</p>
-          )}
-          
-          <p>Status: {isSendingSensors ? 'Sending' : 'Off'} {sensorPermissionStatus !== 'granted' && `(Permissions: ${sensorPermissionStatus})`}</p>
-          
-           {/* Sensor configuration display */} 
-           {/* <div>Orientation Address: {sensorConfig.orientation}</div>
-           <div>Acceleration Address: {sensorConfig.acceleration}</div> */} 
-
-           {/* Sensor data display */}
-           <div className="sensor-data-display">
-               <h4>Orientation (alpha, beta, gamma):</h4>
-               <p>{orientationData.alpha ?? '-'}, {orientationData.beta ?? '-'}, {orientationData.gamma ?? '-'}</p>
-               <h4>Acceleration (x, y, z):</h4>
-               <p>{accelerationData.x ?? '-'}, {accelerationData.y ?? '-'}, {accelerationData.z ?? '-'}</p>
-           </div>
+      <main className="main-grid">
+        {/* Settings Panel (first) */}
+        <section className="panel panel--settings">
+          <div className="panel-header"><h2>Settings</h2></div>
+          <div className="panel-body">
+            <div className="form-grid">
+              <label className="full">
+                <span className="muted">WebSocket Server URL</span>
+                <input
+                  className="input"
+                  id="serverUrlInput"
+                  type="text"
+                  value={serverUrl}
+                  onChange={(e) => setServerUrl(e.target.value)}
+                  disabled={webSocketStatus !== 'disconnected'}
+                />
+              </label>
+            </div>
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              <button className="btn" onClick={handleImportButtonClick}>Import Layout (JSON)</button>
+              <button className="btn" onClick={handleExportLayout}>Export Layout (JSON)</button>
+            </div>
+            <input
+              type="file"
+              ref={fileInputRef}
+              style={{ display: 'none' }}
+              accept=".json,application/json"
+              onChange={handleImportLayout}
+            />
+          </div>
         </section>
 
-        {/* Control Panel - Wrapped with DragDropContext */} 
+        {/* Sensor Panel */}
+        <section className="panel panel--sensors">
+          <div className="panel-header"><h2>Sensors</h2></div>
+          <div className="panel-body">
+            {sensorPermissionStatus === 'denied' && (
+              <p className="muted" style={{ color: 'var(--danger)' }}>Sensor permissions denied. Please check browser settings.</p>
+            )}
+            {(sensorPermissionStatus === 'granted' || sensorPermissionStatus === 'prompt') && (
+              <button 
+                className="btn btn-primary"
+                onClick={handleToggleSensorSending}
+                disabled={isSendingSensors && webSocketStatus !== 'connected'}
+              >
+                {isSendingSensors ? 'Stop Sending Sensors' : (sensorPermissionStatus === 'prompt' ? 'Enable & Start Sending Sensors' : 'Start Sending Sensors')}
+              </button>
+            )}
+            {isSendingSensors && webSocketStatus !== 'connected' && (
+              <p className="muted" style={{ color: 'var(--warning)' }}>Warning: WebSocket not connected. Sensor data is not being sent.</p>
+            )}
+            <p className="muted">Status: {isSendingSensors ? 'Sending' : 'Off'} {sensorPermissionStatus !== 'granted' && `(Permissions: ${sensorPermissionStatus})`}</p>
+            <div className="stack-v">
+              <div>
+                <div className="muted">Orientation (alpha, beta, gamma)</div>
+                <div>{orientationData.alpha ?? '-'}, {orientationData.beta ?? '-'}, {orientationData.gamma ?? '-'}</div>
+              </div>
+              <div>
+                <div className="muted">Acceleration (x, y, z)</div>
+                <div>{accelerationData.x ?? '-'}, {accelerationData.y ?? '-'}, {accelerationData.z ?? '-'}</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Control Panel - DragDrop */}
         <DragDropContext onDragEnd={handleDragEnd}>
-            <section className="panel control-panel" style={{ display: 'flex', flexDirection: 'column' }}> {/* Ensure panel uses flex column */} 
-              <h2>Controls</h2>
-              {/* Droppable area for controls */} 
+          <section className="panel panel--controls">
+            <div className="panel-header"><h2>Controls</h2></div>
+            <div className="panel-body" style={{ display: 'flex', flexDirection: 'column' }}>
               <Droppable droppableId="controlsDroppable">
-                  {(provided) => (
-                      <div 
-                          {...provided.droppableProps} 
-                          ref={provided.innerRef} 
-                          style={{ flexGrow: 1, minHeight: '100px' }} // Allow dropping even when empty
-                      >
-                          {controls.length === 0 && <p>No controls added yet. Drag controls here!</p>}
-                          
-                          {/* Map controls to Draggable components */} 
-                          {controls.map((control, index) => (
-                              <Draggable key={control.id} draggableId={control.id} index={index}>
-                                  {(provided) => (
-                                      <div 
-                                          ref={provided.innerRef}
-                                          {...provided.draggableProps}
-                                          {...provided.dragHandleProps} // Attach drag handle props here
-                                      >
-                                          {/* Render the actual control component */} 
-                                          {renderControl(control)}
-                                      </div>
-                                  )}
-                              </Draggable>
-                          ))}
-                          {provided.placeholder} {/* Placeholder for spacing during drag */} 
-                      </div>
-                  )}
+                {(provided) => (
+                  <div
+                    {...provided.droppableProps}
+                    ref={provided.innerRef}
+                    style={{ flexGrow: 1, minHeight: '120px' }}
+                  >
+                    {controls.length === 0 && <p className="control-placeholder">No controls added yet. Drag controls here!</p>}
+                    {controls.map((control, index) => (
+                      <Draggable key={control.id} draggableId={control.id} index={index}>
+                        {(provided) => (
+                          <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps}>
+                            {renderControl(control)}
+                          </div>
+                        )}
+                      </Draggable>
+                    ))}
+                    {provided.placeholder}
+                  </div>
+                )}
               </Droppable>
-              
-               {/* Button to add controls (Place outside Droppable, but inside section) */} 
-               <button onClick={openAddDialog} style={{ marginTop: 'auto', paddingTop: '10px'}}> 
-                 + Add Control
-               </button>
-            </section>
+            </div>
+            <div className="panel-footer">
+              <button className="btn" onClick={openAddDialog}>+ Add Control</button>
+            </div>
+          </section>
         </DragDropContext>
 
-        {/* Settings Panel Placeholder */}
-        <section className="panel settings-panel">
-          <h2>Settings</h2>
-           {/* WebSocket URL Input */}
-      <div>
-              <label htmlFor="serverUrlInput">WebSocket Server URL: </label>
-              <input
-                id="serverUrlInput"
-                type="text"
-                value={serverUrl}
-                onChange={(e) => setServerUrl(e.target.value)}
-                disabled={webSocketStatus !== 'disconnected'} 
-              />
-           </div>
-           {/* Import/Export Buttons */}
-           <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
-               <button onClick={handleImportButtonClick}>Import Layout (JSON)</button>
-               <button onClick={handleExportLayout}>Export Layout (JSON)</button>
-      </div>
-            {/* Hidden file input for import */}
-            <input 
-                type="file"
-                ref={fileInputRef}
-                style={{ display: 'none' }} 
-                accept=".json,application/json" // Accept only JSON files
-                onChange={handleImportLayout}
-            />
+        {/* Hand Tracking Panel */}
+        <section className="panel panel--hand">
+          <div className="panel-header"><h2>Hand Tracking (Webcam)</h2></div>
+          <div className="panel-body">
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button className="btn btn-primary" onClick={() => setIsHandTrackingActive(!isHandTrackingActive)}>
+                {isHandTrackingActive ? 'Stop Hand Tracking' : 'Start Hand Tracking'}
+              </button>
+              <span className="muted">Status: {handTrackingStatus}</span>
+            </div>
+            <div className="form-grid">
+              <label>
+                <span className="muted">Position OSC Address</span>
+                <input className="input" type="text" name="position" value={handTrackingOscConfig.position} onChange={handleHandOscConfigChange} />
+              </label>
+              <label>
+                <span className="muted">Velocity OSC Address</span>
+                <input className="input" type="text" name="velocity" value={handTrackingOscConfig.velocity} onChange={handleHandOscConfigChange} />
+              </label>
+              <label>
+                <span className="muted">Gesture OSC Address</span>
+                <input className="input" type="text" name="gesture" value={handTrackingOscConfig.gesture} onChange={handleHandOscConfigChange} />
+              </label>
+              <label>
+                <span className="muted">All Landmarks OSC Address (Optional)</span>
+                <input className="input" type="text" name="landmarks" value={handTrackingOscConfig.landmarks || ''} onChange={handleHandOscConfigChange} />
+              </label>
+              <label className="full" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <input className="checkbox" type="checkbox" checked={sendRawLandmarks} onChange={(e) => setSendRawLandmarks(e.target.checked)} />
+                <span>Send All Raw Landmarks (if address specified)</span>
+              </label>
+              <label>
+                <span className="muted">Throttle Interval (ms)</span>
+                <input className="input" type="number" value={handThrottleInterval} onChange={(e) => setHandThrottleInterval(Math.max(20, parseInt(e.target.value, 10) || 50))} step="10" min="20" />
+              </label>
+            </div>
+          </div>
         </section>
-
-        {/* -- Hand Tracking Section -- */}
-        <div className="config-section">
-          <h3>Hand Tracking (Webcam)</h3>
-          <button onClick={() => setIsHandTrackingActive(!isHandTrackingActive)}
-                  className={isHandTrackingActive ? 'active' : ''}>
-            {isHandTrackingActive ? 'Stop Hand Tracking' : 'Start Hand Tracking'}
-          </button>
-          <p>Status: {handTrackingStatus}</p>
-          <div>
-            <label>
-              Position OSC Address:
-              <input type="text" name="position" value={handTrackingOscConfig.position} onChange={handleHandOscConfigChange} />
-            </label>
-          </div>
-          <div>
-            <label>
-              Velocity OSC Address:
-              <input type="text" name="velocity" value={handTrackingOscConfig.velocity} onChange={handleHandOscConfigChange} />
-            </label>
-          </div>
-          <div>
-            <label>
-              Gesture OSC Address:
-              <input type="text" name="gesture" value={handTrackingOscConfig.gesture} onChange={handleHandOscConfigChange} />
-            </label>
-          </div>
-           <div>
-            <label>
-              All Landmarks OSC Address (Optional):
-              <input type="text" name="landmarks" value={handTrackingOscConfig.landmarks || ''} onChange={handleHandOscConfigChange} />
-            </label>
-          </div>
-          <div>
-            <label>
-                <input
-                    type="checkbox"
-                    checked={sendRawLandmarks}
-                    onChange={(e) => setSendRawLandmarks(e.target.checked)}
-                />
-                Send All Raw Landmarks (if address specified)
-            </label>
-          </div>
-           <div>
-            <label>
-              Throttle Interval (ms):
-              <input
-                type="number"
-                value={handThrottleInterval}
-                onChange={(e) => setHandThrottleInterval(Math.max(20, parseInt(e.target.value, 10) || 50))}
-                step="10"
-                min="20"
-              />
-            </label>
-          </div>
-        </div>
-
-        {/* -- Spacer --*/}
-        <div style={{height: "20px"}}></div>
-
-        <button onClick={openAddDialog} className="add-control-btn">Add Control</button>
       </main>
 
       {/* Hand Tracking Controller (Rendered conditionally but always part of React tree for hook) */}
@@ -682,10 +657,7 @@ function App() {
           controlToEdit={controlBeingEdited}
       />
 
-      {/* Footer (Optional) */}
-      {/* <footer className="app-footer">
-        <p>Footer Content</p>
-      </footer> */}
+      {/* Footer intentionally omitted for flat layout */}
       </div>
   )
 }

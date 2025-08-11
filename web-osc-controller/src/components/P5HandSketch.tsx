@@ -64,24 +64,22 @@ const P5HandSketch: React.FC<P5HandSketchProps> = ({
       let isHandPoseModelReady = false; // Flag to track model readiness
       let lastDetectionStatus = "Initializing..."; // State within the sketch
 
-      p.preload = () => {
+      p.preload = async () => {
         if (!handPoseModelRef.current) {
-            console.log("P5 Sketch: Preloading handPose model...");
-            try {
-                handPoseModelRef.current = window.ml5.handPose(() => {
-                    console.log("P5 Sketch: ml5.handPose base model object ready. Model:", handPoseModelRef.current);
-                    isHandPoseModelReady = true;
-                    if (videoRef.current && handPoseModelRef.current && typeof handPoseModelRef.current.detectStart === 'function') {
-                        console.log("P5 Sketch: Model loaded (callback), video available, attempting to start detection.", videoRef.current);
-                        handPoseModelRef.current.detectStart(videoRef.current, gotHands);
-                    } else if (!videoRef.current) {
-                        console.log("P5 Sketch: Model loaded (callback), but video not ready yet. Setup will handle detection start.");
-                    }
-                });
-            } catch (error) {
-                console.error("P5 Sketch: Error preloading handPose model:", error);
-                onHandDataUpdate({ error: 'Failed to load handPose model' });
+          console.log("P5 Sketch: Preloading handPose model...");
+          try {
+            // ml5.handPose returns a promise; await it to avoid perpetual "Initializing..."
+            handPoseModelRef.current = await window.ml5.handPose();
+            console.log("P5 Sketch: ml5.handPose base model object ready. Model:", handPoseModelRef.current);
+            isHandPoseModelReady = true;
+            if (videoRef.current && typeof handPoseModelRef.current.detectStart === 'function') {
+              console.log("P5 Sketch: Model loaded (await), video available, attempting to start detection.", videoRef.current);
+              handPoseModelRef.current.detectStart(videoRef.current, gotHands);
             }
+          } catch (error) {
+            console.error("P5 Sketch: Error preloading handPose model:", error);
+            onHandDataUpdate({ error: 'Failed to load handPose model' });
+          }
         }
       };
 
